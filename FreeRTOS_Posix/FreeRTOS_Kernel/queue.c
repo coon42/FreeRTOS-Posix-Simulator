@@ -1,5 +1,6 @@
 /*
-    FreeRTOS V7.5.0 - Copyright (C) 2013 Real Time Engineers Ltd.
+    FreeRTOS V7.6.0 - Copyright (C) 2013 Real Time Engineers Ltd.
+    All rights reserved
 
     VISIT http://www.FreeRTOS.org TO ENSURE YOU ARE USING THE LATEST VERSION.
 
@@ -109,6 +110,13 @@ zero. */
 #define queueSEMAPHORE_QUEUE_ITEM_LENGTH ( ( unsigned portBASE_TYPE ) 0 )
 #define queueMUTEX_GIVE_BLOCK_TIME		 ( ( portTickType ) 0U )
 
+#if( configUSE_PREEMPTION == 0 )
+	/* If the cooperative scheduler is being used then a yield should not be
+	performed just because a higher priority task has been woken. */
+	#define queueYIELD_IF_USING_PREEMPTION()
+#else
+	#define queueYIELD_IF_USING_PREEMPTION() portYIELD_WITHIN_API()
+#endif
 
 /*
  * Definition of the queue used by the scheduler.
@@ -204,7 +212,7 @@ static void prvCopyDataToQueue( xQUEUE *pxQueue, const void *pvItemToQueue, port
 /*
  * Copies an item out of a queue.
  */
-static void prvCopyDataFromQueue( xQUEUE * const pxQueue, const void * const pvBuffer ) PRIVILEGED_FUNCTION;
+static void prvCopyDataFromQueue( xQUEUE * const pxQueue, void * const pvBuffer ) PRIVILEGED_FUNCTION;
 
 #if ( configUSE_QUEUE_SETS == 1 )
 	/*
@@ -254,14 +262,14 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 		{
 			/* If there are tasks blocked waiting to read from the queue, then
 			the tasks will remain blocked as after this function exits the queue
-			will still be empty.  If there are tasks blocked waiting to	write to
+			will still be empty.  If there are tasks blocked waiting to write to
 			the queue, then one should be unblocked as after this function exits
 			it will be possible to write to it. */
 			if( listLIST_IS_EMPTY( &( pxQueue->xTasksWaitingToSend ) ) == pdFALSE )
 			{
 				if( xTaskRemoveFromEventList( &( pxQueue->xTasksWaitingToSend ) ) == pdTRUE )
 				{
-					portYIELD_WITHIN_API();
+					queueYIELD_IF_USING_PREEMPTION();
 				}
 			}
 		}
@@ -497,7 +505,7 @@ xQueueHandle xReturn = NULL;
 
 		traceTAKE_MUTEX_RECURSIVE( pxMutex );
 
-		if( pxMutex->pxMutexHolder == ( void * )  xTaskGetCurrentTaskHandle() ) /*lint !e961 Cast is not redundant as xTaskHandle is a typedef. */
+		if( pxMutex->pxMutexHolder == ( void * ) xTaskGetCurrentTaskHandle() ) /*lint !e961 Cast is not redundant as xTaskHandle is a typedef. */
 		{
 			( pxMutex->u.uxRecursiveCallCount )++;
 			xReturn = pdPASS;
@@ -526,11 +534,14 @@ xQueueHandle xReturn = NULL;
 
 #if ( configUSE_COUNTING_SEMAPHORES == 1 )
 
-	xQueueHandle xQueueCreateCountingSemaphore( unsigned portBASE_TYPE uxCountValue, unsigned portBASE_TYPE uxInitialCount )
+	xQueueHandle xQueueCreateCountingSemaphore( unsigned portBASE_TYPE uxMaxCount, unsigned portBASE_TYPE uxInitialCount )
 	{
 	xQueueHandle xHandle;
 
-		xHandle = xQueueGenericCreate( uxCountValue, queueSEMAPHORE_QUEUE_ITEM_LENGTH, queueQUEUE_TYPE_COUNTING_SEMAPHORE );
+		configASSERT( uxMaxCount != 0 );
+		configASSERT( uxInitialCount <= uxMaxCount );
+
+		xHandle = xQueueGenericCreate( uxMaxCount, queueSEMAPHORE_QUEUE_ITEM_LENGTH, queueQUEUE_TYPE_COUNTING_SEMAPHORE );
 
 		if( xHandle != NULL )
 		{
@@ -585,7 +596,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 							/* The queue is a member of a queue set, and posting
 							to the queue set caused a higher priority task to
 							unblock. A context switch is required. */
-							portYIELD_WITHIN_API();
+							queueYIELD_IF_USING_PREEMPTION();
 						}
 					}
 					else
@@ -600,7 +611,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 								our own so yield immediately.  Yes it is ok to
 								do this from within the critical section - the
 								kernel takes care of that. */
-								portYIELD_WITHIN_API();
+								queueYIELD_IF_USING_PREEMPTION();
 							}
 						}
 					}
@@ -617,7 +628,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 							our own so yield immediately.  Yes it is ok to do
 							this from within the critical section - the kernel
 							takes care of that. */
-							portYIELD_WITHIN_API();
+							queueYIELD_IF_USING_PREEMPTION();
 						}
 					}
 				}
@@ -651,7 +662,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 				}
 				else
 				{
-					/* Entry time was already set. */					
+					/* Entry time was already set. */
 				}
 			}
 		}
@@ -824,7 +835,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 							{
 								/* Record the information required to implement
 								priority inheritance should it become necessary. */
-								pxQueue->pxMutexHolder = ( void * ) xTaskGetCurrentTaskHandle();
+								pxQueue->pxMutexHolder = ( signed char * ) xTaskGetCurrentTaskHandle();
 							}
 						}
 						#endif
@@ -1032,7 +1043,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 }
 /*-----------------------------------------------------------*/
 
-signed portBASE_TYPE xQueueGenericReceive( xQueueHandle xQueue, const void * const pvBuffer, portTickType xTicksToWait, portBASE_TYPE xJustPeeking )
+signed portBASE_TYPE xQueueGenericReceive( xQueueHandle xQueue, void * const pvBuffer, portTickType xTicksToWait, portBASE_TYPE xJustPeeking )
 {
 signed portBASE_TYPE xEntryTimeSet = pdFALSE;
 xTimeOutType xTimeOut;
@@ -1073,7 +1084,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 						{
 							/* Record the information required to implement
 							priority inheritance should it become necessary. */
-							pxQueue->pxMutexHolder = ( void * ) xTaskGetCurrentTaskHandle(); /*lint !e961 Cast is not redundant as xTaskHandle is a typedef. */
+							pxQueue->pxMutexHolder = ( signed char * ) xTaskGetCurrentTaskHandle(); /*lint !e961 Cast is not redundant as xTaskHandle is a typedef. */
 						}
 					}
 					#endif
@@ -1082,7 +1093,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 					{
 						if( xTaskRemoveFromEventList( &( pxQueue->xTasksWaitingToSend ) ) == pdTRUE )
 						{
-							portYIELD_WITHIN_API();
+							queueYIELD_IF_USING_PREEMPTION();
 						}
 					}
 				}
@@ -1103,7 +1114,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 						if( xTaskRemoveFromEventList( &( pxQueue->xTasksWaitingToReceive ) ) != pdFALSE )
 						{
 							/* The task waiting has a higher priority than this task. */
-							portYIELD_WITHIN_API();
+							queueYIELD_IF_USING_PREEMPTION();
 						}
 					}
 				}
@@ -1187,7 +1198,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 }
 /*-----------------------------------------------------------*/
 
-signed portBASE_TYPE xQueueReceiveFromISR( xQueueHandle xQueue, const void * const pvBuffer, signed portBASE_TYPE *pxHigherPriorityTaskWoken )
+signed portBASE_TYPE xQueueReceiveFromISR( xQueueHandle xQueue, void * const pvBuffer, signed portBASE_TYPE *pxHigherPriorityTaskWoken )
 {
 signed portBASE_TYPE xReturn;
 unsigned portBASE_TYPE uxSavedInterruptStatus;
@@ -1198,17 +1209,17 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 
 	/* RTOS ports that support interrupt nesting have the concept of a maximum
 	system call (or maximum API call) interrupt priority.  Interrupts that are
-	above the maximum system call priority are keep permanently enabled, even 
+	above the maximum system call priority are keep permanently enabled, even
 	when the RTOS kernel is in a critical section, but cannot make any calls to
-	FreeRTOS API functions.  If configASSERT() is defined in FreeRTOSConfig.h 
+	FreeRTOS API functions.  If configASSERT() is defined in FreeRTOSConfig.h
 	then portASSERT_IF_INTERRUPT_PRIORITY_INVALID() will result in an assertion
 	failure if a FreeRTOS API function is called from an interrupt that has been
 	assigned a priority above the configured maximum system call priority.
 	Only FreeRTOS functions that end in FromISR can be called from interrupts
-	that have been assigned a priority at or (logically) below the maximum 
-	system call	interrupt priority.  FreeRTOS maintains a separate interrupt 
-	safe API to ensure interrupt entry is as fast and as simple as possible.  
-	More information (albeit Cortex-M specific) is provided on the following 
+	that have been assigned a priority at or (logically) below the maximum
+	system call	interrupt priority.  FreeRTOS maintains a separate interrupt
+	safe API to ensure interrupt entry is as fast and as simple as possible.
+	More information (albeit Cortex-M specific) is provided on the following
 	link: http://www.freertos.org/RTOS-Cortex-M3-M4.html */
 	portASSERT_IF_INTERRUPT_PRIORITY_INVALID();
 
@@ -1262,7 +1273,7 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 }
 /*-----------------------------------------------------------*/
 
-signed portBASE_TYPE xQueuePeekFromISR( xQueueHandle xQueue, const void * const pvBuffer )
+signed portBASE_TYPE xQueuePeekFromISR( xQueueHandle xQueue,  void * const pvBuffer )
 {
 signed portBASE_TYPE xReturn;
 unsigned portBASE_TYPE uxSavedInterruptStatus;
@@ -1274,17 +1285,17 @@ xQUEUE * const pxQueue = ( xQUEUE * ) xQueue;
 
 	/* RTOS ports that support interrupt nesting have the concept of a maximum
 	system call (or maximum API call) interrupt priority.  Interrupts that are
-	above the maximum system call priority are keep permanently enabled, even 
+	above the maximum system call priority are keep permanently enabled, even
 	when the RTOS kernel is in a critical section, but cannot make any calls to
-	FreeRTOS API functions.  If configASSERT() is defined in FreeRTOSConfig.h 
+	FreeRTOS API functions.  If configASSERT() is defined in FreeRTOSConfig.h
 	then portASSERT_IF_INTERRUPT_PRIORITY_INVALID() will result in an assertion
 	failure if a FreeRTOS API function is called from an interrupt that has been
 	assigned a priority above the configured maximum system call priority.
 	Only FreeRTOS functions that end in FromISR can be called from interrupts
-	that have been assigned a priority at or (logically) below the maximum 
-	system call	interrupt priority.  FreeRTOS maintains a separate interrupt 
-	safe API to ensure interrupt entry is as fast and as simple as possible.  
-	More information (albeit Cortex-M specific) is provided on the following 
+	that have been assigned a priority at or (logically) below the maximum
+	system call	interrupt priority.  FreeRTOS maintains a separate interrupt
+	safe API to ensure interrupt entry is as fast and as simple as possible.
+	More information (albeit Cortex-M specific) is provided on the following
 	link: http://www.freertos.org/RTOS-Cortex-M3-M4.html */
 	portASSERT_IF_INTERRUPT_PRIORITY_INVALID();
 
@@ -1323,6 +1334,22 @@ unsigned portBASE_TYPE uxReturn;
 
 	taskENTER_CRITICAL();
 		uxReturn = ( ( xQUEUE * ) xQueue )->uxMessagesWaiting;
+	taskEXIT_CRITICAL();
+
+	return uxReturn;
+} /*lint !e818 Pointer cannot be declared const as xQueue is a typedef not pointer. */
+/*-----------------------------------------------------------*/
+
+unsigned portBASE_TYPE uxQueueSpacesAvailable( const xQueueHandle xQueue )
+{
+unsigned portBASE_TYPE uxReturn;
+xQUEUE *pxQueue;
+
+	pxQueue = ( xQUEUE * ) xQueue;
+	configASSERT( pxQueue );
+
+	taskENTER_CRITICAL();
+		uxReturn = pxQueue->uxLength - pxQueue->uxMessagesWaiting;
 	taskEXIT_CRITICAL();
 
 	return uxReturn;
@@ -1438,7 +1465,7 @@ static void prvCopyDataToQueue( xQUEUE *pxQueue, const void *pvItemToQueue, port
 }
 /*-----------------------------------------------------------*/
 
-static void prvCopyDataFromQueue( xQUEUE * const pxQueue, const void * const pvBuffer )
+static void prvCopyDataFromQueue( xQUEUE * const pxQueue, void * const pvBuffer )
 {
 	if( pxQueue->uxQueueType != queueQUEUE_IS_MUTEX )
 	{
@@ -1742,7 +1769,7 @@ signed portBASE_TYPE xReturn;
 					pxQueue->u.pcReadFrom = pxQueue->pcHead;
 				}
 				--( pxQueue->uxMessagesWaiting );
-				memcpy( ( void * ) pvBuffer, ( void * ) pxQueue->u.pcReadFrom, ( unsigned ) pxQueue->uxItemSize );
+				( void ) memcpy( ( void * ) pvBuffer, ( void * ) pxQueue->u.pcReadFrom, ( unsigned ) pxQueue->uxItemSize );
 
 				xReturn = pdPASS;
 
@@ -1822,7 +1849,7 @@ signed portBASE_TYPE xReturn;
 				pxQueue->u.pcReadFrom = pxQueue->pcHead;
 			}
 			--( pxQueue->uxMessagesWaiting );
-			memcpy( ( void * ) pvBuffer, ( void * ) pxQueue->u.pcReadFrom, ( unsigned ) pxQueue->uxItemSize );
+			( void ) memcpy( ( void * ) pvBuffer, ( void * ) pxQueue->u.pcReadFrom, ( unsigned ) pxQueue->uxItemSize );
 
 			if( ( *pxCoRoutineWoken ) == pdFALSE )
 			{
@@ -2064,4 +2091,15 @@ signed portBASE_TYPE xReturn;
 	}
 
 #endif /* configUSE_QUEUE_SETS */
+
+
+
+
+
+
+
+
+
+
+
 
