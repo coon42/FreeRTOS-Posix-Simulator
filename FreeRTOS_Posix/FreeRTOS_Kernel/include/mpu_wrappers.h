@@ -1,5 +1,6 @@
 /*
-    FreeRTOS V7.5.0 - Copyright (C) 2013 Real Time Engineers Ltd.
+    FreeRTOS V7.6.0 - Copyright (C) 2013 Real Time Engineers Ltd. 
+    All rights reserved
 
     VISIT http://www.FreeRTOS.org TO ENSURE YOU ARE USING THE LATEST VERSION.
 
@@ -98,7 +99,7 @@ only for ports that are using the MPU. */
 		#define xTaskGetCurrentTaskHandle		MPU_xTaskGetCurrentTaskHandle
 		#define xTaskGetSchedulerState			MPU_xTaskGetSchedulerState
 		#define xTaskGetIdleTaskHandle			MPU_xTaskGetIdleTaskHandle
-		#define uxTaskGetSystemState				MPU_uxTaskGetSystemState
+		#define uxTaskGetSystemState			MPU_uxTaskGetSystemState
 
 		#define xQueueGenericCreate				MPU_xQueueGenericCreate
 		#define xQueueCreateMutex				MPU_xQueueCreateMutex

@@ -1,5 +1,6 @@
 /*
-    FreeRTOS V7.5.0 - Copyright (C) 2013 Real Time Engineers Ltd.
+    FreeRTOS V7.6.0 - Copyright (C) 2013 Real Time Engineers Ltd.
+    All rights reserved
 
     VISIT http://www.FreeRTOS.org TO ENSURE YOU ARE USING THE LATEST VERSION.
 
@@ -89,7 +90,7 @@ privileged Vs unprivileged linkage and placement. */
 	uxTaskGetSystemState() function.  Note the formatting functions are provided
 	for convenience only, and are NOT considered part of the kernel. */
 	#include <stdio.h>
-#endif /* ( ( configGENERATE_RUN_TIME_STATS == 1 ) && ( configUSE_STATS_FORMATTING_FUNCTIONS == 1 ) ) */
+#endif /* configUSE_STATS_FORMATTING_FUNCTIONS == 1 ) */
 
 /* Sanity check the configuration. */
 #if configUSE_TICKLESS_IDLE != 0
@@ -102,6 +103,14 @@ privileged Vs unprivileged linkage and placement. */
  * Defines the size, in words, of the stack allocated to the idle task.
  */
 #define tskIDLE_STACK_SIZE	configMINIMAL_STACK_SIZE
+
+#if( configUSE_PREEMPTION == 0 )
+	/* If the cooperative scheduler is being used then a yield should not be
+	performed just because a higher priority task has been woken. */
+	#define taskYIELD_IF_USING_PREEMPTION()
+#else
+	#define taskYIELD_IF_USING_PREEMPTION() portYIELD_WITHIN_API()
+#endif
 
 /*
  * Task control block.  A task control block (TCB) is allocated for each task,
@@ -620,7 +629,7 @@ tskTCB * pxNewTCB;
 			then it should run now. */
 			if( pxCurrentTCB->uxPriority < uxPriority )
 			{
-				portYIELD_WITHIN_API();
+				taskYIELD_IF_USING_PREEMPTION();
 			}
 		}
 	}
@@ -843,8 +852,16 @@ tskTCB * pxNewTCB;
 				else if( pxStateList == &xSuspendedTaskList )
 				{
 					/* The task being queried is referenced from the suspended
-					list. */
-					eReturn = eSuspended;
+					list.  Is it genuinely suspended or is it block
+					indefinitely? */
+					if( listLIST_ITEM_CONTAINER( &( pxTCB->xEventListItem ) ) == NULL )
+					{
+						eReturn = eSuspended;
+					}
+					else
+					{
+						eReturn = eBlocked;
+					}
 				}
 			#endif
 
@@ -939,7 +956,7 @@ tskTCB * pxNewTCB;
 						running task is being raised.  Is the priority being
 						raised above that of the running task? */
 						if( uxNewPriority >= pxCurrentTCB->uxPriority )
-						{							
+						{
 							xYieldRequired = pdTRUE;
 						}
 					}
@@ -952,8 +969,8 @@ tskTCB * pxNewTCB;
 				}
 				else if( pxTCB == pxCurrentTCB )
 				{
-					/* Setting the priority of the running task down means 
-					there may now be another task of higher priority that 
+					/* Setting the priority of the running task down means
+					there may now be another task of higher priority that
 					is ready to execute. */
 					xYieldRequired = pdTRUE;
 				}
@@ -1010,7 +1027,7 @@ tskTCB * pxNewTCB;
 
 				if( xYieldRequired == pdTRUE )
 				{
-					portYIELD_WITHIN_API();
+					taskYIELD_IF_USING_PREEMPTION();
 				}
 
 				/* Remove compiler warning about unused variables when the port
@@ -1146,9 +1163,10 @@ tskTCB * pxNewTCB;
 					/* We may have just resumed a higher priority task. */
 					if( pxTCB->uxPriority >= pxCurrentTCB->uxPriority )
 					{
-						/* This yield may not cause the task just resumed to run, but
-						will leave the lists in the correct state for the next yield. */
-						portYIELD_WITHIN_API();
+						/* This yield may not cause the task just resumed to run,
+						but will leave the lists in the correct state for the
+						next yield. */
+						taskYIELD_IF_USING_PREEMPTION();
 					}
 				}
 			}
@@ -1196,7 +1214,11 @@ tskTCB * pxNewTCB;
 
 				if( uxSchedulerSuspended == ( unsigned portBASE_TYPE ) pdFALSE )
 				{
-					xYieldRequired = ( pxTCB->uxPriority >= pxCurrentTCB->uxPriority );
+					if( pxTCB->uxPriority >= pxCurrentTCB->uxPriority )
+					{
+						xYieldRequired = pdTRUE;
+					}
+
 					( void ) uxListRemove(  &( pxTCB->xGenericListItem ) );
 					prvAddTaskToReadyList( pxTCB );
 				}
@@ -1250,11 +1272,16 @@ portBASE_TYPE xReturn;
 		before or during the call to xPortStartScheduler().  The stacks of
 		the created tasks contain a status word with interrupts switched on
 		so interrupts will automatically get re-enabled when the first task
-		starts to run.
-
-		STEPPING THROUGH HERE USING A DEBUGGER CAN CAUSE BIG PROBLEMS IF THE
-		DEBUGGER ALLOWS INTERRUPTS TO BE PROCESSED. */
+		starts to run. */
 		portDISABLE_INTERRUPTS();
+
+		#if ( configUSE_NEWLIB_REENTRANT == 1 )
+		{
+			/* Switch Newlib's _impure_ptr variable to point to the _reent
+			structure specific to the task that will run first. */
+			_impure_ptr = &( pxCurrentTCB->xNewLib_reent );
+		}
+		#endif /* configUSE_NEWLIB_REENTRANT */
 
 		xSchedulerRunning = pdTRUE;
 		xTickCount = ( portTickType ) 0U;
@@ -1337,7 +1364,6 @@ signed portBASE_TYPE xTaskResumeAll( void )
 {
 tskTCB *pxTCB;
 portBASE_TYPE xAlreadyYielded = pdFALSE;
-portBASE_TYPE xYieldRequired = pdFALSE;
 
 	/* If uxSchedulerSuspended is zero then this function does not match a
 	previous call to vTaskSuspendAll(). */
@@ -1369,7 +1395,7 @@ portBASE_TYPE xYieldRequired = pdFALSE;
 					the current task then we should yield. */
 					if( pxTCB->uxPriority >= pxCurrentTCB->uxPriority )
 					{
-						xYieldRequired = pdTRUE;
+						xYieldPending = pdTRUE;
 					}
 				}
 
@@ -1382,17 +1408,20 @@ portBASE_TYPE xYieldRequired = pdFALSE;
 					{
 						if( xTaskIncrementTick() != pdFALSE )
 						{
-							xYieldRequired = pdTRUE;
+							xYieldPending = pdTRUE;
 						}
 						--uxPendedTicks;
 					}
 				}
 
-				if( ( xYieldRequired == pdTRUE ) || ( xYieldPending == pdTRUE ) )
+				if( xYieldPending == pdTRUE )
 				{
-					xAlreadyYielded = pdTRUE;
-					xYieldPending = pdFALSE;
-					portYIELD_WITHIN_API();
+					#if( configUSE_PREEMPTION != 0 )
+					{
+						xAlreadyYielded = pdTRUE;
+					}
+					#endif
+					taskYIELD_IF_USING_PREEMPTION();
 				}
 			}
 		}
@@ -1515,7 +1544,11 @@ unsigned portBASE_TYPE uxTaskGetNumberOfTasks( void )
 				{
 					if( pulTotalRunTime != NULL )
 					{
-						*pulTotalRunTime = portGET_RUN_TIME_COUNTER_VALUE();
+						#ifdef portALT_GET_RUN_TIME_COUNTER_VALUE
+							portALT_GET_RUN_TIME_COUNTER_VALUE( ( *pulTotalRunTime ) );
+						#else
+							*pulTotalRunTime = portGET_RUN_TIME_COUNTER_VALUE();
+						#endif
 					}
 				}
 				#else
@@ -1674,6 +1707,17 @@ portBASE_TYPE xSwitchRequired = pdFALSE;
 			}
 		}
 		#endif /* ( ( configUSE_PREEMPTION == 1 ) && ( configUSE_TIME_SLICING == 1 ) ) */
+
+		#if ( configUSE_TICK_HOOK == 1 )
+		{
+			/* Guard against the tick hook being called when the pended tick
+			count is being unwound (when the scheduler is being unlocked). */
+			if( uxPendedTicks == ( unsigned portBASE_TYPE ) 0U )
+			{
+				vApplicationTickHook();
+			}
+		}
+		#endif /* configUSE_TICK_HOOK */
 	}
 	else
 	{
@@ -1688,16 +1732,14 @@ portBASE_TYPE xSwitchRequired = pdFALSE;
 		#endif
 	}
 
-	#if ( configUSE_TICK_HOOK == 1 )
+	#if ( configUSE_PREEMPTION == 1 )
 	{
-		/* Guard against the tick hook being called when the missed tick
-		count is being unwound (when the scheduler is being unlocked). */
-		if( uxPendedTicks == ( unsigned portBASE_TYPE ) 0U )
+		if( xYieldPending != pdFALSE )
 		{
-			vApplicationTickHook();
+			xSwitchRequired = pdTRUE;
 		}
 	}
-	#endif /* configUSE_TICK_HOOK */
+	#endif /* configUSE_PREEMPTION */
 
 	return xSwitchRequired;
 }
@@ -1800,6 +1842,7 @@ void vTaskSwitchContext( void )
 	}
 	else
 	{
+		xYieldPending = pdFALSE;
 		traceTASK_SWITCHED_OUT();
 
 		#if ( configGENERATE_RUN_TIME_STATS == 1 )
@@ -1977,6 +2020,10 @@ portBASE_TYPE xReturn;
 		the calling task to know if it should force a context
 		switch now. */
 		xReturn = pdTRUE;
+
+		/* Mark that a yield is pending in case the user is not using the
+		"xHigherPriorityTaskWoken" parameter to an ISR safe FreeRTOS function. */
+		xYieldPending = pdTRUE;
 	}
 	else
 	{
@@ -2182,7 +2229,7 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 						traceLOW_POWER_IDLE_END();
 					}
 				}
-				xTaskResumeAll();
+				( void ) xTaskResumeAll();
 			}
 		}
 		#endif /* configUSE_TICKLESS_IDLE */
@@ -2502,7 +2549,7 @@ tskTCB *pxNewTCB;
 
 				#if ( portSTACK_GROWTH > 0 )
 				{
-					ppxTaskStatusArray[ uxTask ].usStackHighWaterMark = prvTaskCheckFreeStackSpace( ( unsigned char * ) pxNextTCB->pxEndOfStack );
+					pxTaskStatusArray[ uxTask ].usStackHighWaterMark = prvTaskCheckFreeStackSpace( ( unsigned char * ) pxNextTCB->pxEndOfStack );
 				}
 				#else
 				{
@@ -2525,7 +2572,7 @@ tskTCB *pxNewTCB;
 
 	static unsigned short prvTaskCheckFreeStackSpace( const unsigned char * pucStackByte )
 	{
-	register unsigned short usCount = 0U;
+	unsigned short usCount = 0U;
 
 		while( *pucStackByte == tskSTACK_FILL_BYTE )
 		{
