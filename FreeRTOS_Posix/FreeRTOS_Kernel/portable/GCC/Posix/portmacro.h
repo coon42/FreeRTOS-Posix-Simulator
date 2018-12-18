@@ -68,28 +68,37 @@ extern "C" {
  */
 
 /* Type definitions. */
-#define portCHAR		char
-#define portFLOAT		float
-#define portDOUBLE		double
-#define portLONG		int
-#define portSHORT		short
+#define portCHAR	char
+#define portFLOAT	float
+#define portDOUBLE	double
+#define portLONG	int
+#define portSHORT	short
 #define portSTACK_TYPE  unsigned long
 #define portBASE_TYPE   long
+#define portPOINTER_SIZE_TYPE size_t
+
+typedef portSTACK_TYPE StackType_t;
+typedef long BaseType_t;
+typedef unsigned long UBaseType_t;
 
 #if( configUSE_16_BIT_TICKS == 1 )
-	typedef unsigned portSHORT portTickType;
-	#define portMAX_DELAY ( portTickType ) 0xffff
+	typedef uint16_t TickType_t;
+	#define portMAX_DELAY ( TickType_t ) 0xffff
 #else
-	typedef unsigned portLONG portTickType;
-	#define portMAX_DELAY ( portTickType ) 0xffffffff
+	typedef uint32_t TickType_t;
+	#define portMAX_DELAY ( TickType_t ) 0xffffffff
+
+       /* 32/64-bit tick type on a 32/64-bit architecture, so reads of the tick
+        count do not need to be guarded with a critical section. */
+        #define portTICK_TYPE_IS_ATOMIC 1
 #endif
 /*-----------------------------------------------------------*/
 
 /* Architecture specifics. */
-#define portSTACK_GROWTH				( -1 )
-#define portTICK_RATE_MS				( ( portTickType ) 1000 / configTICK_RATE_HZ )
-#define portTICK_RATE_MICROSECONDS		( ( portTickType ) 1000000 / configTICK_RATE_HZ )
-#define portBYTE_ALIGNMENT				4
+#define portSTACK_GROWTH			( -1 )
+#define portTICK_PERIOD_MS			( ( TickType_t ) 1000 / configTICK_RATE_HZ )
+#define portTICK_RATE_MICROSECONDS		( ( TickType_t ) 1000000 / configTICK_RATE_HZ )
+#define portBYTE_ALIGNMENT			4
 #define portREMOVE_STATIC_QUALIFIER
 /*-----------------------------------------------------------*/
 
@@ -113,7 +122,7 @@ extern void vPortEnableInterrupts( void );
 extern portBASE_TYPE xPortSetInterruptMask( void );
 extern void vPortClearInterruptMask( portBASE_TYPE xMask );
 
-#define portSET_INTERRUPT_MASK_FROM_ISR()		xPortSetInterruptMask()
+#define portSET_INTERRUPT_MASK_FROM_ISR()	xPortSetInterruptMask()
 #define portCLEAR_INTERRUPT_MASK_FROM_ISR(x)	vPortClearInterruptMask(x)
 
 
@@ -123,7 +132,7 @@ extern void vPortExitCritical( void );
 #define portDISABLE_INTERRUPTS()	portSET_INTERRUPT_MASK()
 #define portENABLE_INTERRUPTS()		portCLEAR_INTERRUPT_MASK()
 #define portENTER_CRITICAL()		vPortEnterCritical()
-#define portEXIT_CRITICAL()			vPortExitCritical()
+#define portEXIT_CRITICAL()		vPortExitCritical()
 /*-----------------------------------------------------------*/
 
 /* Task function macros as described on the FreeRTOS.org WEB site. */
@@ -158,7 +167,7 @@ extern void vPortAddTaskHandle( void *pxTaskHandle );
 extern void vPortFindTicksPerSecond( void );
 #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()	vPortFindTicksPerSecond()		/* Nothing to do because the timer is already present. */
 extern unsigned long ulPortGetTimerValue( void );
-#define portGET_RUN_TIME_COUNTER_VALUE()			ulPortGetTimerValue()			/* Query the System time stats for this process. */
+#define portGET_RUN_TIME_COUNTER_VALUE()		ulPortGetTimerValue()			/* Query the System time stats for this process. */
 
 #ifdef __cplusplus
 }

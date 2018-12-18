@@ -65,6 +65,7 @@
  *----------------------------------------------------------*/
 
 #define configUSE_STATS_FORMATTING_FUNCTIONS 1 // required since version 7.5.0. TODO: refactor and remove this setting
+#define configENABLE_BACKWARD_COMPATIBILITY 1 // required since version 8.0.0. TODO: refactor and remove this setting
 #define configUSE_PREEMPTION			1
 #define configUSE_IDLE_HOOK				1
 #define configUSE_TICK_HOOK				0
